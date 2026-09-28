@@ -621,17 +621,3 @@ It is **not** intended to:
 - Predict future market prices
 
 ---
-
-# Disclaimer
-
-StackStress is an experimental research prototype.
-
-Its calculations depend on the assumptions, market data, liquidity snapshots, and protocol information available to the model.
-
-Results should not be interpreted as financial advice, trading instructions, liquidation instructions, or guarantees of actual execution.
-
----
-
-# License
-
-License information will be added as the project matures.
