@@ -1,444 +1,313 @@
 # StackStress
 
-StackStress is a research prototype for analyzing the market impact of large BTC and sBTC sales against available decentralized exchange (DEX) liquidity on the Stacks ecosystem.
+StackStress is a research prototype for analyzing how much BTC/sBTC can be sold into available Stacks DEX liquidity before price impact exceeds a user-defined tolerance.
 
-The project explores how much of a large sale can be absorbed by available liquidity before execution price impact exceeds a defined tolerance.
+The goal is to make large forced-sale scenarios easier to reason about by translating available liquidity into a simple execution-stress analysis.
 
-StackStress is designed around a simple question:
-
-> **If a large amount of BTC or sBTC needs to be sold, how much can the available market liquidity absorb before the sale causes unacceptable price impact?**
-
-The project is currently an early-stage proof of concept focused on the simulation model and initial integration with real Bitflow liquidity data.
+> **Status:** Working proof of concept / early research prototype.
+>
+> StackStress is not a production trading, liquidation, or risk-management system.
 
 ---
 
-## Overview
+## Problem
 
-When a relatively small trade is executed against a liquid market, the available liquidity may be sufficient to fill the order without significantly changing the execution price.
+Large asset sales can create significant price impact when available liquidity is limited.
 
-A large sale is different.
+This becomes particularly relevant when a lending position is liquidated and the resulting collateral must potentially be sold into a DEX.
 
-If the requested amount is larger than the liquidity available near the current market price, the execution may continue through progressively less favorable price levels. As more liquidity is consumed, the average execution price can move further away from the reference price.
+For example:
 
-This becomes particularly relevant during market-stress events, including:
+> A position has 10 BTC that may need to be sold.
+>
+> Instead of assuming that the entire 10 BTC can be sold at the current market price, StackStress estimates how much of that amount can be absorbed before a specified price-impact tolerance is exceeded.
 
-- Large BTC or sBTC sales
-- Forced exits
-- Lending-position liquidations
-- Portfolio rebalancing
-- Leveraged-position unwinding
-- Sudden changes in market conditions
-
-StackStress models this behavior using available liquidity and calculates how execution quality changes as the sale size increases.
+This provides a simple way to reason about market stress caused by large forced flows.
 
 ---
 
-## The Core Idea
+## Core Idea
 
-Consider a simplified market with the following liquidity:
+StackStress models a sale against available liquidity levels.
 
-| Price | Available Liquidity |
-| --- | ---: |
-| $100,000 | 2 BTC |
-| $99,500 | 3 BTC |
-| $99,000 | 5 BTC |
+Each liquidity level contains:
 
-A trader attempting to sell 10 BTC cannot execute the entire sale at $100,000 because only 2 BTC is available at that level.
+- A price
+- An amount of BTC/sBTC available at that price
 
-The simulation therefore consumes liquidity progressively:
+The simulator consumes liquidity from the available levels and calculates:
+
+1. Total amount received
+2. Average execution price
+3. Price impact
+4. Maximum sale amount within a specified price-impact tolerance
+
+Conceptually:
 
 ```text
-2 BTC → $100,000
-3 BTC → $99,500
-5 BTC → $99,000
+Large potential sale
+        ↓
+Available DEX liquidity
+        ↓
+Simulated execution
+        ↓
+Average execution price
+        ↓
+Price impact
+        ↓
+Maximum acceptable sale amount
 ```
-
-The resulting execution is different from simply multiplying the entire order by the first available price.
-
-StackStress calculates the resulting:
-
-- Total amount received
-- Average execution price
-- Price impact
-- Maximum sale amount within a specified impact tolerance
-
-This allows the project to analyze the relationship between **sale size, available liquidity, and execution impact**.
 
 ---
 
 ## Example
 
-The current proof of concept uses a synthetic liquidity scenario:
+Suppose a market has the following simplified liquidity:
 
-```text
-Amount to sell:       10 BTC
-Reference price:      $100,000.00
-Average execution:    $99,350.00
-Total received:       $993,500.00
-Price impact:         0.65%
-Maximum at 0.40%:     5 BTC
-```
+| Price | Available |
+|---:|---:|
+| $100,000 | 2 BTC |
+| $99,500 | 3 BTC |
+| $99,000 | 5 BTC |
 
-In this scenario, the full 10 BTC sale produces a price impact of 0.65%.
+If 10 BTC is sold across these levels:
 
-If the defined maximum acceptable impact is 0.40%, the simplified model identifies 5 BTC as the maximum amount that can be sold within that threshold.
+- Reference price: $100,000
+- Total received: $993,500
+- Average execution price: $99,350
+- Price impact: 0.65%
 
-The purpose of this example is to demonstrate the simulation methodology.
+If the maximum acceptable price impact is 0.40%, the current proof of concept identifies the liquidity level boundary before the impact exceeds that tolerance.
 
-It is not a live trading recommendation.
-
----
-
-## How StackStress Works
-
-The current architecture separates the project into three main concepts:
-
-```text
-Market Data
-    ↓
-Liquidity Representation
-    ↓
-Stress Simulation
-    ↓
-Execution Analysis
-```
-
-### 1. Market Data
-
-Market liquidity can come from an external data source.
-
-The current project includes an initial Bitflow adapter that retrieves pool and DLMM bin information.
-
-### 2. Liquidity Representation
-
-Retrieved market information is converted into a common liquidity representation used by the simulator.
-
-Each liquidity level contains:
-
-- Price
-- Available asset amount
-
-This allows the simulation engine to operate independently from the specific API format of an external DEX.
-
-### 3. Stress Simulation
-
-The simulator consumes liquidity levels in sequence according to the simplified execution model.
-
-It calculates the economic result of selling a specified amount against those levels.
-
-### 4. Execution Analysis
-
-The resulting execution is analyzed using:
-
-- Total received
-- Average execution price
-- Price impact
-- Maximum sale before a defined impact threshold
+This is a simplified demonstration of the underlying idea. Real DEX liquidity requires protocol-specific execution and pricing logic.
 
 ---
 
-## Bitflow Integration
+# How StackStress Works
 
-StackStress includes an initial exploratory adapter for Bitflow.
+StackStress currently separates the analysis into small components.
 
-The adapter retrieves information from Bitflow's public API for the sBTC-USDCx liquidity pool.
+### 1. Sale Request
 
-The current adapter retrieves information including:
+A sale request represents the asset and amount being analyzed.
+
+```python
+SaleRequest(
+    asset="BTC",
+    amount=10
+)
+```
+
+### 2. Liquidity Levels
+
+Liquidity is represented as a sequence of price/amount levels.
+
+```python
+LiquidityLevel(
+    price=100000,
+    amount=2
+)
+```
+
+### 3. Sale Simulation
+
+The simulator consumes available liquidity and calculates the total amount received.
+
+### 4. Average Execution Price
+
+The simulator divides the total proceeds by the amount sold.
+
+### 5. Price Impact
+
+Price impact compares the average execution price with the reference price.
+
+### 6. Maximum Sale Analysis
+
+StackStress can estimate the amount that can be sold before a configured price-impact tolerance is exceeded.
+
+---
+
+# Bitflow Integration
+
+StackStress includes an initial adapter for retrieving liquidity data from Bitflow.
+
+The current adapter uses Bitflow's public API to retrieve:
 
 - Pool information
-- Active bin
-- Bin IDs
+- Active bin information
+- Bin reserves
 - Bin prices
-- sBTC reserves
-- Bin liquidity information
+- Available sBTC-side liquidity
 
-The retrieved sBTC reserves are converted into the project's internal `LiquidityLevel` representation.
+The current research integration focuses on the Bitflow `sBTC-USDCx` DLMM pool.
 
-The current integration is intended to demonstrate the connection between real DEX liquidity data and the StackStress simulation engine.
+The adapter converts the retrieved data into StackStress's internal `LiquidityLevel` representation.
 
-It is not yet a complete reproduction of Bitflow's production routing or quote execution logic.
-
----
+```text
+Bitflow API
+     ↓
+Pool information
+     ↓
+DLMM bins
+     ↓
+sBTC reserves + prices
+     ↓
+StackStress LiquidityLevel
+     ↓
+Stress simulation
+```
 
 ## Real Liquidity Data
 
-The project has successfully retrieved live Bitflow pool and DLMM bin data.
+The Bitflow adapter has been tested against live Bitflow API responses.
 
-The data includes fields such as:
+The retrieved pool data includes the active bin and individual bin reserves/prices.
+
+Because DEX liquidity is dynamic, the active bin and reserves can change between API requests.
+
+Therefore, a liquidity snapshot should be treated as a point-in-time observation rather than permanent market state.
+
+---
+
+# Zest Lending and Liquidation Integration
+
+StackStress is designed to analyze forced-sale pressure that can arise from lending positions on Zest Protocol.
+
+The initial integration research focuses on Zest V2 and the following contracts:
+
+| Contract | Role |
+|---|---|
+| `v0-market-vault` | Provides lending position, collateral, and debt state |
+| `v0-8-market` | Contains lending health and liquidation logic |
+| `v0-egroup` | Provides risk-group parameters used by liquidation logic |
+| `v0-assets` | Provides asset registry and asset configuration |
+| `v0-vault-sbtc` | Provides sBTC vault-related data |
+
+## Position and Liquidation Flow
+
+StackStress's planned Zest integration follows the risk-parameter path used by the Zest V2 contracts:
 
 ```text
-active_bin_id
-bin_id
-reserve_x
-reserve_y
-price
-liquidity
+Zest lending position
+        ↓
+Position mask
+        ↓
+v0-8-market
+        ↓
+v0-egroup.resolve(mask)
+        ↓
+Risk-group parameters
+        ↓
+Liquidation calculation
+        ↓
+Potential forced-sale amount
+        ↓
+Bitflow liquidity analysis
 ```
 
-The adapter processes these values and creates liquidity levels that can be passed to the StackStress simulation engine.
+The Zest V2 liquidation logic uses risk-group parameters including:
 
-Because DEX pool state changes continuously, retrieved values represent a snapshot of the market at the time of the request.
+- `LTV-BORROW`
+- `LTV-LIQ-PARTIAL`
+- `LTV-LIQ-FULL`
+- `LIQ-PENALTY-MIN`
+- `LIQ-PENALTY-MAX`
+- `LIQ-CURVE-EXP`
+
+These parameters allow StackStress to model the conditions under which a lending position can enter liquidation and the resulting liquidation flow.
+
+Importantly, the current Zest liquidation model is not being represented as a simple fixed "close factor + liquidation bonus" calculation. The inspected Zest V2 logic uses partial/full liquidation LTV thresholds, a liquidation penalty range, and a liquidation curve.
+
+StackStress will use the resulting liquidation amount as a potential forced-sell flow and evaluate whether available DEX liquidity can absorb that flow within a defined price-impact tolerance.
+
+> **Important:** StackStress is an analytical research prototype. It does not execute Zest liquidations or trades.
+
+---
+
+# Zest Integration Status
+
+The Zest integration is currently at the research and design stage.
+
+The Zest V2 contract structure and liquidation path have been inspected from deployed contract source.
+
+The current prototype does **not** claim to have a complete live Zest position adapter.
+
+The planned implementation is to:
+
+1. Read relevant Zest lending positions.
+2. Identify the position's risk-group configuration.
+3. Read the applicable liquidation parameters.
+4. Determine the potential liquidation debt/collateral amount.
+5. Translate that amount into a potential forced-sell flow.
+6. Test the flow against available DEX liquidity.
+7. Report the resulting price impact and liquidity tolerance.
+
+---
+
+# Forced-Sale Stress Model
+
+The central research question is:
+
+> **How much forced selling can available liquidity absorb before price impact exceeds a defined tolerance?**
+
+For a potential liquidation amount:
+
+```text
+Potential liquidation
+        ↓
+Forced-sale amount
+        ↓
+DEX liquidity
+        ↓
+Simulated execution
+        ↓
+Average execution price
+        ↓
+Price impact
+```
+
+This allows StackStress to distinguish between:
+
+- The amount that may need to be sold
+- The amount that available liquidity can absorb within a tolerance
+- The portion that may need to remain unsold or be analyzed under another execution scenario
 
 For example:
 
 ```text
-Pool state at time T1
-        ↓
-Liquidity snapshot
-        ↓
-StackStress simulation
+Potential forced sale: 10 BTC
+
+Maximum sale within tolerance: 7 BTC
+
+Remaining amount: 3 BTC
 ```
 
-A later request can produce different:
-
-- Active bin
-- Reserves
-- Liquidity distribution
-- Available execution levels
-
-This is an important consideration for future versions of the model.
+The values above are illustrative. They are not a live market recommendation.
 
 ---
 
-## Core Components
+# Maximum Sale Analysis
 
-The project currently consists of four primary components.
-
-### Liquidity Model
-
-The liquidity model represents an available execution level:
-
-```text
-Price + Available Amount
-```
-
-This provides a simple abstraction that allows the simulation engine to work with liquidity data without being tightly coupled to one external API.
-
-### Sale Simulation
-
-The sale simulation determines how a requested amount is consumed across available liquidity levels.
-
-The simulator tracks:
-
-- Remaining amount
-- Amount consumed at each level
-- Total value received
-
-### Execution Price
-
-The average execution price is calculated from the total value received divided by the amount sold.
-
-This provides a single measure of the effective price received across the entire simulated sale.
-
-### Price Impact
-
-Price impact measures how far the average execution price moves away from the reference price.
-
-The current simplified calculation uses the first liquidity level as the reference price.
-
-The formula is:
-
-```text
-Price Impact =
-((Reference Price - Average Execution Price)
- / Reference Price) × 100
-```
-
-This produces a percentage representing the difference between the reference price and the simulated average execution price.
-
----
-
-## Maximum Sale Analysis
-
-One of the core functions of StackStress is identifying how much of a sale can be executed before a defined price-impact threshold is exceeded.
+StackStress supports a configurable price-impact tolerance.
 
 For example:
 
-```text
-Requested sale:       10 BTC
-Maximum impact:       0.40%
+```python
+maximum_sale_before_impact(
+    liquidity,
+    max_impact=0.40,
+)
 ```
 
-The simulator evaluates the available liquidity and determines the maximum amount that remains within the specified threshold.
+The purpose is to answer:
 
-Conceptually:
+> "How much can be sold before the simulated execution moves beyond the allowed impact?"
 
-```text
-Large Sale
-    ↓
-Consume Available Liquidity
-    ↓
-Calculate Execution Price
-    ↓
-Calculate Price Impact
-    ↓
-Compare With Allowed Threshold
-    ↓
-Determine Maximum Sale Amount
-```
-
-This is the foundation of the project's market-stress analysis.
+The current implementation is intentionally simple and is designed as a proof of concept rather than a production-grade execution engine.
 
 ---
 
-## Current Project Status
-
-StackStress is currently a **working proof of concept**.
-
-The repository contains:
-
-- A core liquidity model
-- A sale simulation engine
-- Average execution-price calculations
-- Price-impact calculations
-- Maximum-sale analysis
-- Automated tests
-- A command-line demonstration
-- An initial Bitflow liquidity adapter
-- Real Bitflow pool and DLMM bin data retrieval
-
-The project is intentionally kept small at this stage.
-
-The current focus is validating the underlying simulation approach before introducing additional protocol integrations or a larger user interface.
-
----
-
-## Current Limitations
-
-StackStress currently uses a simplified liquidity model.
-
-It does not yet reproduce every detail involved in executing a real DEX transaction.
-
-Important areas that require further development include:
-
-### DEX Routing
-
-The current simulator does not reproduce complete production routing logic across multiple pools.
-
-### Trading Fees
-
-Trading fees are not currently incorporated into the core simulation model.
-
-### Partial Bin Execution
-
-The current maximum-sale calculation operates on the available liquidity levels and does not yet model every possible fractional execution step.
-
-### Dynamic Pool State
-
-A real DEX pool can change while a transaction is being prepared or executed.
-
-The current prototype treats retrieved liquidity as a snapshot.
-
-### Quote Validation
-
-The current model has not yet been fully validated against Bitflow's production quote and routing behavior.
-
-### Lending Integration
-
-Zest lending-position data and liquidation logic are not currently integrated into the simulator.
-
-These limitations define areas for future research and development rather than features the current prototype claims to have completed.
-
----
-
-## Future Development
-
-Potential future development includes:
-
-- More accurate DEX routing simulation
-- Trading-fee calculations
-- Fractional bin execution
-- Multi-pool liquidity analysis
-- Historical liquidity snapshots
-- Dynamic pool-state analysis
-- Comparison against live DEX quotes
-- Lending-position analysis
-- Liquidation-event modeling
-- Forced-sale estimation
-- Cross-protocol liquidity stress analysis
-- Visualization of liquidity depth and price impact
-- A web interface for interactive scenarios
-
-The project is intentionally starting with the core simulation model before expanding into these additional capabilities.
-
----
-
-## Testing
-
-The project includes automated tests for the core simulation engine.
-
-Current tests cover:
-
-- Full liquidity consumption
-- Partial sales
-- Average execution price
-- Price impact
-- Maximum sale before an impact threshold
-
-Run the test suite with:
-
-```bash
-python3 -m pytest
-```
-
-The current test suite contains five tests.
-
-Expected result:
-
-```text
-5 passed
-```
-
----
-
-## Running the Project
-
-### Requirements
-
-- Python 3
-- `pytest` for running the test suite
-- Internet access for the Bitflow adapter
-
-### Install Dependencies
-
-From the project root:
-
-```bash
-pip install -r requirements.txt
-```
-
-### Run Tests
-
-```bash
-python3 -m pytest
-```
-
-### Run the CLI Demo
-
-```bash
-python3 -m stackstress
-```
-
-Example output:
-
-```text
-STACKSTRESS
-Market Stress Simulation
-------------------------
-
-Asset: BTC
-Amount to sell: 10 BTC
-
-Reference price:    $100,000.00
-Average execution:  $99,350.00
-Total received:     $993,500.00
-Price impact:       0.65%
-Maximum sale at 0.40% impact: 5 BTC
-```
-
----
-
-## Project Structure
+# Current Architecture
 
 ```text
 stackstress/
@@ -469,237 +338,300 @@ stackstress/
 
 ---
 
-## File and Directory Description
-
-### `stackstress/`
-
-Contains the core StackStress simulation package.
-
-### `stackstress/__init__.py`
-
-Marks the `stackstress` directory as a Python package.
-
-### `stackstress/__main__.py`
-
-Provides the command-line entry point.
-
-Running:
-
-```bash
-python3 -m stackstress
-```
-
-executes the demonstration defined in this file.
+# Project Structure
 
 ### `stackstress/models.py`
 
 Contains basic data models used by the project.
 
-The current implementation includes the `SaleRequest` model, which represents:
-
-- Asset
-- Amount
+Currently includes the `SaleRequest` model.
 
 ### `stackstress/liquidity.py`
 
-Contains the `LiquidityLevel` model.
-
-Each liquidity level represents:
-
-```text
-Price
-Available Amount
-```
+Defines the `LiquidityLevel` data structure used to represent available liquidity at a particular price.
 
 ### `stackstress/simulator.py`
 
-Contains the core simulation logic.
+Contains the core stress-analysis functions:
 
-Current functions include:
+- `simulate_sale()`
+- `average_execution_price()`
+- `price_impact()`
+- `maximum_sale_before_impact()`
 
-```text
-simulate_sale()
-average_execution_price()
-price_impact()
-maximum_sale_before_impact()
-```
+### `stackstress/__main__.py`
 
-This is currently the central component of StackStress.
-
----
-
-## `adapters/`
-
-Contains integrations that retrieve external market data and convert it into the format expected by the simulation engine.
+Provides the command-line demonstration of the simulator.
 
 ### `adapters/bitflow.py`
 
-Contains the initial Bitflow adapter.
+Contains the initial Bitflow liquidity adapter.
 
-Its responsibilities include:
-
-1. Requesting Bitflow pool information
-2. Requesting DLMM bin information
-3. Identifying the active bin
-4. Reading available sBTC reserves
-5. Reading bin prices
-6. Converting the retrieved information into `LiquidityLevel` objects
-
-This separation keeps external data retrieval independent from the core simulation logic.
-
----
-
-## `tests/`
-
-Contains automated tests for the StackStress simulation engine.
+It retrieves Bitflow pool/bin data and converts usable sBTC liquidity into the internal StackStress representation.
 
 ### `tests/test_simulator.py`
 
-Tests the main simulation functions against controlled synthetic liquidity scenarios.
+Contains automated tests covering the current simulation logic.
 
-The tests help verify that changes to the simulation logic do not unintentionally break existing behavior.
+### `data/`
 
----
+Reserved for research datasets and future market snapshots.
 
-## `data/`
+### `docs/`
 
-Reserved for project data and future research datasets.
-
-Potential future uses include:
-
-- Historical liquidity snapshots
-- Simulation inputs
-- Research datasets
-- Exported market-state observations
+Reserved for technical documentation and research notes.
 
 ---
 
-## `docs/`
+# Current Status
 
-Reserved for additional technical documentation and research notes.
+## Built
 
-Potential future documentation includes:
+The current proof of concept includes:
 
-- Simulation methodology
-- DEX integration notes
-- Data-source documentation
-- Mathematical assumptions
-- Research findings
-- Validation results
-
----
-
-## `requirements.txt`
-
-Contains the Python dependencies required by the project.
-
----
-
-## `.gitignore`
-
-Specifies files and directories that should not be committed to the repository.
-
----
-
-## Design Principles
-
-StackStress currently follows several simple design principles.
-
-### Keep the Core Model Independent
-
-The simulation engine should not depend directly on a specific DEX API.
-
-External data should first be converted into the common liquidity representation.
-
-```text
-External DEX
-     ↓
-Adapter
-     ↓
-LiquidityLevel
-     ↓
-Simulation Engine
-```
-
-This makes it possible to add additional liquidity sources without rewriting the core simulation logic.
-
-### Start With a Small, Testable Model
-
-The project begins with a simple simulation model that can be tested using controlled liquidity scenarios.
-
-This makes it easier to identify assumptions and validate individual components before introducing more complex protocol behavior.
-
-### Separate Research From Production Claims
-
-The current implementation is explicitly a research prototype.
-
-Results depend on:
-
-- Data quality
-- Liquidity snapshots
-- Simulation assumptions
-- Routing behavior
-- Fees
-- Pool state
-
-The project therefore avoids treating the current model as a production trading or liquidation system.
-
----
-
-## Research Direction
-
-The broader research direction is to connect two pieces of information:
-
-```text
-Potential Forced-Sale Size
-            +
-Available DEX Liquidity
-            ↓
-     Market Stress Analysis
-```
-
-A future version could use lending-position information to estimate the amount of an asset that may need to be sold during a liquidation event.
-
-That amount could then be evaluated against current DEX liquidity to estimate how much execution pressure the market may experience.
-
-The long-term research question is whether this combination can provide a useful view of market resilience during large forced flows.
-
----
-
-## Scope
-
-The current scope is deliberately limited to:
-
-- Liquidity representation
+- Core liquidity data model
 - Sale simulation
-- Execution-price analysis
-- Price-impact analysis
+- Average execution-price calculation
+- Price-impact calculation
 - Maximum-sale analysis
-- Initial Bitflow data retrieval
+- Automated tests
+- Command-line demonstration
+- Initial Bitflow API adapter
+- Live Bitflow pool/bin retrieval
+- Initial investigation of Zest V2 liquidation architecture
 
-The following are outside the current proof-of-concept scope:
+## Research / In Development
 
-- Executing trades
-- Executing liquidations
-- Managing user funds
-- Providing financial advice
-- Acting as a production risk-management system
-- Guaranteeing execution prices
+The following areas are not yet complete:
+
+- Full Zest position adapter
+- Complete Zest liquidation-flow calculation
+- Protocol-accurate Bitflow execution modeling
+- Multi-pool routing
+- Fee-aware execution analysis
+- Historical liquidity snapshots
+- More precise fractional-bin execution
+- Comprehensive validation against executable Bitflow quotes
 
 ---
 
-## Disclaimer
+# Current Limitations
+
+StackStress is intentionally an early research prototype.
+
+### Simplified Liquidity Model
+
+The initial simulator represents liquidity as ordered price/amount levels.
+
+Actual DEX execution can involve more complex mechanisms.
+
+### Point-in-Time Liquidity
+
+Live DEX liquidity changes over time.
+
+A result based on one liquidity snapshot may differ from a later snapshot.
+
+### Bitflow Routing
+
+The current adapter focuses on a specific Bitflow pool and does not yet model complete multi-pool routing.
+
+### Fees
+
+The current core simulator does not yet incorporate every protocol-specific trading fee into its execution calculation.
+
+### Zest Integration
+
+The Zest integration is currently a research/design component rather than a complete production adapter.
+
+### Execution
+
+StackStress does not execute trades or liquidations.
+
+It is an analytical tool.
+
+---
+
+# Future Development
+
+Planned development includes:
+
+1. Complete the Zest position adapter.
+2. Model Zest liquidation amounts using the protocol's risk parameters.
+3. Connect liquidation flows to DEX liquidity analysis.
+4. Improve Bitflow execution modeling.
+5. Account for trading fees.
+6. Support multiple liquidity pools and routing paths.
+7. Add point-in-time liquidity snapshots.
+8. Improve partial-bin/fractional execution calculations.
+9. Compare simulated execution with protocol quote results.
+10. Expand automated testing using real market snapshots.
+
+---
+
+# Research Direction
+
+StackStress is intended to explore the relationship between:
+
+**Lending risk → liquidation flow → DEX liquidity → market impact**
+
+The project focuses on making this relationship easier to quantify.
+
+Rather than treating a liquidation amount as an isolated number, StackStress aims to ask what happens when that amount reaches the available market liquidity.
+
+```text
+Lending Position
+       ↓
+Liquidation Risk
+       ↓
+Forced-Sale Flow
+       ↓
+Available Liquidity
+       ↓
+Execution Simulation
+       ↓
+Price Impact
+       ↓
+Market-Stress Analysis
+```
+
+---
+
+# Design Principles
+
+StackStress follows a few simple principles:
+
+### Keep the model understandable
+
+The initial simulator uses straightforward calculations that can be inspected and tested easily.
+
+### Separate protocol adapters from the core simulator
+
+Protocol-specific data retrieval should remain separate from the generic stress-analysis logic.
+
+### Do not assume live data is static
+
+DEX liquidity and market conditions can change continuously.
+
+### Prefer transparent assumptions
+
+Simplified assumptions should be visible rather than hidden inside the model.
+
+### Build incrementally
+
+The project starts with a small simulation engine and adds protocol-specific research components progressively.
+
+---
+
+# Testing
+
+The current simulator has automated tests covering:
+
+- Full liquidity consumption
+- Average execution price
+- Partial sales
+- Price impact
+- Maximum sale before a configured impact threshold
+
+Run the test suite with:
+
+```bash
+python3 -m pytest
+```
+
+The current test suite passes successfully.
+
+---
+
+# Running the Project
+
+From the project root:
+
+```bash
+python3 -m stackstress
+```
+
+The command-line demonstration produces output similar to:
+
+```text
+STACKSTRESS
+Market Stress Simulation
+------------------------
+
+Asset: BTC
+Amount to sell: 10 BTC
+
+Reference price:    $100,000.00
+Average execution:  $99,350.00
+Total received:     $993,500.00
+Price impact:       0.65%
+Maximum sale at 0.40% impact: 5 BTC
+```
+
+These values use the project's simplified example liquidity data and are not live market results.
+
+---
+
+# Technical Approach
+
+The project is currently implemented in Python.
+
+The architecture intentionally keeps the core simulation independent from external protocols.
+
+```text
+                ┌─────────────────────┐
+                │   Protocol Adapter  │
+                │                     │
+                │      Bitflow        │
+                │      Zest           │
+                └──────────┬──────────┘
+                           │
+                           ↓
+                ┌─────────────────────┐
+                │  Normalized Market  │
+                │       Data          │
+                └──────────┬──────────┘
+                           │
+                           ↓
+                ┌─────────────────────┐
+                │  StackStress Core   │
+                │                     │
+                │ Sale Simulation      │
+                │ Execution Price      │
+                │ Price Impact         │
+                │ Stress Limit         │
+                └─────────────────────┘
+```
+
+This separation makes it possible to test the simulation independently of protocol-specific APIs.
+
+---
+
+# Scope
+
+StackStress currently focuses on analytical market-stress modeling.
+
+It is **not** intended to:
+
+- Execute trades
+- Execute liquidations
+- Manage user funds
+- Provide financial advice
+- Replace protocol risk-management systems
+- Guarantee execution prices
+- Predict future market prices
+
+---
+
+# Disclaimer
 
 StackStress is an experimental research prototype.
 
-It does not execute trades, manage funds, or provide financial advice.
+Its calculations depend on the assumptions, market data, liquidity snapshots, and protocol information available to the model.
 
-Simulation results are dependent on the liquidity data and assumptions used by the model and should not be treated as guaranteed real-world execution results.
-
-The project is intended for research, experimentation, and validation of the underlying market-stress analysis approach.
+Results should not be interpreted as financial advice, trading instructions, liquidation instructions, or guarantees of actual execution.
 
 ---
 
-## License
+# License
 
-This project is currently under development as a Stacks ecosystem research and development project.
+License information will be added as the project matures.
